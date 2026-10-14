@@ -78,8 +78,8 @@ class RegisterView(generics.CreateAPIView):
             logger.exception("Brevo email delivery failed during account registration.")
             user.delete()
             raise EmailDeliveryUnavailable(
-                "No se pudo enviar el correo por Brevo. Revisa la clave SMTP, "
-                "el remitente verificado y la conexión, y vuelve a intentarlo."
+                "No se pudo enviar el correo por Brevo. Revisa la clave API de "
+                "Brevo y el remitente verificado, y vuelve a intentarlo."
             ) from error
         detail = "Cuenta creada. Revisa tu correo para verificarla."
         if (
@@ -161,8 +161,8 @@ class ResendEmailVerificationView(APIView):
                     except (smtplib.SMTPException, OSError) as error:
                         logger.exception("Brevo email delivery failed during verification resend.")
                         raise EmailDeliveryUnavailable(
-                            "Brevo no pudo enviar el correo. Revisa la clave SMTP, "
-                            "el remitente verificado y la conexión, y vuelve a intentarlo."
+                            "Brevo no pudo enviar el correo. Revisa la clave API "
+                            "de Brevo y el remitente verificado, y vuelve a intentarlo."
                         ) from error
         if settings.EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
             detail = (

@@ -114,7 +114,7 @@ supabase_storage_settings = {
     "endpoint_url": os.getenv("SUPABASE_S3_ENDPOINT_URL"),
     "region_name": os.getenv("SUPABASE_S3_REGION"),
 }
-if any(supabase_storage_settings.values()):
+if not DEBUG or any(supabase_storage_settings.values()):
     missing_storage_settings = [
         name
         for name, value in supabase_storage_settings.items()

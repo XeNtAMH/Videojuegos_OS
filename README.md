@@ -91,10 +91,31 @@ La configuración del repositorio está preparada para este esquema gratuito: **
 2. En la configuración del servicio, completa las variables marcadas como secretas:
    - `DATABASE_URL`: URI de Supabase **Session pooler**.
    - `BREVO_API_KEY`: crea una clave API v3 en Brevo (no es la contraseña SMTP ni la clave SMTP). El servicio usará la API HTTPS de Brevo, porque Render Free bloquea el SMTP saliente en el puerto 587.
-   - Las cinco variables `SUPABASE_S3_*`/`SUPABASE_STORAGE_BUCKET` de la sección anterior.
+   - Las cinco variables `SUPABASE_S3_*`/`SUPABASE_STORAGE_BUCKET` de la sección anterior. Son obligatorias en producción: si faltan, Django ya no arrancará usando accidentalmente el disco efímero de Render.
 3. Conserva `DJANGO_SECRET_KEY` generada por Render y `DJANGO_DEBUG=0`. Cuando Cloudflare dé la URL final de Pages, establece `FRONTEND_URL` y `CORS_ALLOWED_ORIGINS` con ese origen exacto, por ejemplo `https://nombre.pages.dev` (sin ruta ni barra final).
 4. Espera que el despliegue termine. Revisa **Logs** si falla. La dirección de comprobación de salud será `https://videojuegos-os-api.onrender.com/api/store-settings/`.
-5. En **Shell** del servicio, ejecuta `python manage.py createsuperuser` para crear tu cuenta de administración. Luego inicia sesión en `/admin/` y asigna el rol **Dueño** a la cuenta del negocio. No uses la cuenta superusuario para operaciones cotidianas.
+5. Espera a que los Logs confirmen que Render terminó `migrate`. Para crear el superusuario sin acceso al Shell de Render, ejecuta el comando desde tu computadora conectado temporalmente a la base de Supabase:
+
+   ```powershell
+   $secureDatabaseUrl = Read-Host "Pega DATABASE_URL de Supabase (Session pooler)" -AsSecureString
+   $databaseUrlPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureDatabaseUrl)
+   $previousDatabaseUrl = $env:DATABASE_URL
+   $previousDebug = $env:DJANGO_DEBUG
+   $previousSecretKey = $env:DJANGO_SECRET_KEY
+   try {
+       $env:DATABASE_URL = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($databaseUrlPointer)
+       $env:DJANGO_DEBUG = "0"
+       $env:DJANGO_SECRET_KEY = "temporary-cli-" + [guid]::NewGuid().ToString("N")
+       .\.venv\Scripts\python.exe manage.py createsuperuser
+   } finally {
+       [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($databaseUrlPointer)
+       if ($null -eq $previousDatabaseUrl) { Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue } else { $env:DATABASE_URL = $previousDatabaseUrl }
+       if ($null -eq $previousDebug) { Remove-Item Env:DJANGO_DEBUG -ErrorAction SilentlyContinue } else { $env:DJANGO_DEBUG = $previousDebug }
+       if ($null -eq $previousSecretKey) { Remove-Item Env:DJANGO_SECRET_KEY -ErrorAction SilentlyContinue } else { $env:DJANGO_SECRET_KEY = $previousSecretKey }
+   }
+   ```
+
+   Ejecuta el bloque desde la carpeta del proyecto, con el entorno virtual y dependencias instalados. `DJANGO_DEBUG=0` hace que Django exija SSL en esta conexión; la clave temporal solo permite cargar los ajustes de producción durante ese comando y se elimina al terminar. La URI se solicita sin mostrarla ni guardarla en el historial de comandos. Django te pedirá correo, celular, nombre, apellidos y contraseña. Después inicia sesión en `/admin/` y asigna el rol **Dueño** a la cuenta del negocio. No uses la cuenta superusuario para operaciones cotidianas. No guardes la URI de Supabase en el repositorio ni la compartas.
 
 La verificación del correo del sitio no requiere SMTP: Render llama a `https://api.brevo.com` usando `BREVO_API_KEY`. En Brevo debe seguir verificado `pedroglzzz08@gmail.com` como remitente. Registra una cuenta de prueba y mira el mensaje en **Logs** del servicio si falla; no compartas la clave. Una primera petición tras inactividad puede tardar cerca de un minuto mientras Render despierta.
 
@@ -116,13 +137,19 @@ La verificación del correo del sitio no requiere SMTP: Render llama a `https://
 
 La base SQLite local (`db.sqlite3`) y el directorio local `media/` están excluidos de Git. El despliegue empieza con el esquema vacío de Supabase: los productos, usuarios, pedidos y comprobantes locales **no se copian solos**. Puedes volver a crear catálogo y cuentas en producción; si necesitas conservar registros locales, planifica una migración de datos y archivos antes de abrir la tienda. No cargues un fixture con datos de clientes en GitHub.
 
+En producción, `DATABASE_URL` dirige los registros de clientes, contraseñas cifradas, catálogo, inventario, configuración, pedidos y referencias a los comprobantes a PostgreSQL de Supabase. Las capturas de pago son archivos y se guardan en el bucket privado indicado por `SUPABASE_STORAGE_BUCKET`, no dentro de PostgreSQL. Las fotos de producto se guardan como enlaces externos: la base contiene la URL, pero no una copia de la imagen. Si el sitio que aloja una foto deja de servirla, habrá que actualizar ese enlace.
+
 ### Pausa y respaldos de Supabase Free
 
 Supabase Free puede **pausar el proyecto por inactividad** (consulta el límite vigente en su [página de precios](https://supabase.com/pricing)). Pausado no significa que se borren inmediatamente las filas, pero la tienda no podrá consultar usuarios, productos ni pedidos hasta que reanudes el proyecto desde su panel. Entra al dashboard, abre el proyecto pausado y elige **Resume/Restore** si aparece; espera a que esté activo y luego vuelve a probar la URL de la API. No cuentes con que una visita a la tienda reactive por sí sola una base pausada.
 
-Un respaldo es un archivo independiente de la base activa para recuperar los registros ante borrado accidental, fallo o pérdida del proyecto. **No impide la pausa y no equivale a garantía de permanencia eterna.** En Free no presupongas que tendrás copias automáticas descargables con retención; conserva una copia propia. Los respaldos de base tampoco incluyen los archivos del bucket: para los comprobantes, guarda además copias de los objetos del bucket o mantén una segunda copia segura de los comprobantes que debas retener.
+Un respaldo es una copia independiente para recuperar los registros ante borrado accidental, fallo o pérdida del proyecto. **No impide la pausa y no equivale a garantía de permanencia eterna.** En Free no presupongas que tendrás copias automáticas descargables con retención; conserva copias propias. `pg_dump` incluye las filas y referencias de PostgreSQL, pero no los archivos del bucket, por lo que hay que respaldar ambas cosas.
 
-Frecuencia recomendada sin costo: ejecuta un respaldo **cada semana**, y también inmediatamente antes de cambios de esquema/importaciones o antes de cerrar una cuenta/proyecto. El script [`scripts/backup-supabase.ps1`](./scripts/backup-supabase.ps1) usa `pg_dump` y guarda un archivo personalizado fuera del repositorio en `Documentos\VideoG_TO-backups`:
+Frecuencia recomendada: respalda **cada semana** tanto PostgreSQL como Storage, y también inmediatamente antes de cambios de esquema/importaciones o antes de cerrar una cuenta/proyecto. Guarda una copia cifrada adicional en otro dispositivo o ubicación bajo tu control. Una vez al mes, prueba restaurar la base y revisar/abrir archivos en una ubicación de prueba.
+
+#### Respaldo de PostgreSQL
+
+El script [`scripts/backup-supabase.ps1`](./scripts/backup-supabase.ps1) usa `pg_dump` y guarda un archivo personalizado fuera del repositorio en `Documentos\VideoG_TO-backups`:
 
 1. Instala PostgreSQL Command Line Tools en tu computadora para disponer de `pg_dump`.
 2. En Supabase, abre **Connect** y copia host, puerto, usuario y base de datos de Session pooler (o usa Direct connection si tu red admite IPv6).
@@ -135,7 +162,21 @@ Frecuencia recomendada sin costo: ejecuta un respaldo **cada semana**, y tambié
 4. Cuando se solicite, escribe la contraseña de la base; no se muestra en pantalla. Comprueba que aparece `Respaldo creado` y que el archivo `.dump` existe. Copia ese archivo a otra ubicación bajo tu control, preferiblemente cifrada y separada de la computadora.
 5. Conserva varias copias recientes y prueba periódicamente restaurar una en un proyecto/base de prueba. Un archivo no probado puede no servir al necesitarlo. El archivo contiene datos personales: protege la cuenta/disco de Windows y guarda copias adicionales únicamente en un medio cifrado; no compartas ni subas el `.dump` sin cifrar.
 
-La frecuencia semanal requiere que ejecutes ese comando semanalmente o pongas un recordatorio; la herramienta no envía los respaldos fuera de tu equipo automáticamente. El script no contiene ni guarda contraseña y la carpeta destino está fuera del proyecto.
+#### Respaldo de comprobantes (Supabase Storage)
+
+El script [`scripts/backup-supabase-storage.py`](./scripts/backup-supabase-storage.py) descarga todos los objetos del bucket a una carpeta fechada en el mismo directorio de respaldos. Usa las credenciales S3 de servidor de Supabase; no uses la `service_role` de la API ni las credenciales de la base de datos:
+
+1. En Supabase, abre la configuración de **Storage / S3** y ten a mano el endpoint S3, región y credenciales S3. Confirma el nombre del bucket privado que usa la tienda (por ejemplo, `payment-proofs`).
+2. Desde PowerShell en la carpeta del proyecto, ejecuta:
+
+   ```powershell
+   .\.venv\Scripts\python.exe scripts\backup-supabase-storage.py
+   ```
+
+3. Introduce endpoint, región, bucket, access key ID y secret access key cuando se soliciten. Las claves se piden sin mostrarse y no se guardan en el script. Comprueba que informa el número de objetos y la ruta del respaldo. Si aparece un error, el respaldo no está completo: corrige el acceso y vuelve a ejecutarlo.
+4. Copia también esa carpeta fuera de la computadora o a un medio cifrado. El directorio contiene imágenes privadas de comprobantes y datos personales; limita quién puede acceder.
+
+Los scripts no programan ni envían copias automáticamente. Ejecuta ambos cada semana o configura un recordatorio semanal; no guardes contraseñas, claves ni `.dump` sin cifrar en GitHub o en una carpeta pública.
 
 Las reservas vencidas se liberan cuando se consultan productos/pedidos o antes de nuevas compras. En producción conviene configurar una tarea programada para `python manage.py expire_orders`; en Render Free no hay un trabajador gratuito siempre activo, así que las reservas pueden liberarse al siguiente acceso si no hubo visitas durante el vencimiento.
 
