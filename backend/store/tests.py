@@ -508,6 +508,98 @@ class AdminPanelTests(IsolatedMediaTestCase):
         )
         self.client.force_login(self.admin_user)
 
+    def test_superuser_can_create_cash_order_with_products_from_admin(self):
+        response = self.client.post(
+            "/admin/store/order/add/",
+            {
+                "user": str(self.customer.pk),
+                "payment_method": Order.PaymentMethod.CASH,
+                "transaction_number": "",
+                "customer_note": "Coordinar por teléfono",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "1",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-product": str(self.product.pk),
+                "items-0-quantity": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        created_order = Order.objects.exclude(pk=self.order.pk).get()
+        self.assertEqual(created_order.payment_method, Order.PaymentMethod.CASH)
+        self.assertEqual(created_order.total_cup, self.product.price_cup)
+        self.assertEqual(created_order.items.count(), 1)
+        self.assertEqual(created_order.items.get().quantity, 1)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.reserved_stock, 2)
+
+    def test_superuser_cannot_create_electronic_order_without_proof(self):
+        response = self.client.post(
+            "/admin/store/order/add/",
+            {
+                "user": str(self.customer.pk),
+                "payment_method": Order.PaymentMethod.MOBILE,
+                "transaction_number": "",
+                "customer_note": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "1",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-product": str(self.product.pk),
+                "items-0-quantity": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Adjunta la captura obligatoria del pago.")
+        self.assertEqual(Order.objects.count(), 1)
+
+    def test_superuser_can_create_electronic_order_with_required_proof(self):
+        response = self.client.post(
+            "/admin/store/order/add/",
+            {
+                "user": str(self.customer.pk),
+                "payment_method": Order.PaymentMethod.BPA,
+                "transaction_number": "BPA-ADMIN-123",
+                "customer_note": "",
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "1",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-product": str(self.product.pk),
+                "items-0-quantity": "1",
+                "proof": valid_png(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        created_order = Order.objects.exclude(pk=self.order.pk).get()
+        self.assertEqual(created_order.status, Order.Status.PROOF_SUBMITTED)
+        self.assertEqual(created_order.transaction_number, "BPA-ADMIN-123")
+        self.assertEqual(created_order.proofs.count(), 1)
+
+    def test_superuser_can_delete_selected_orders_and_release_reservations(self):
+        proof_path = self.proof.image.name
+        self.assertTrue(self.proof.image.storage.exists(proof_path))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/admin/store/order/",
+                {
+                    "action": "delete_selected",
+                    "_selected_action": str(self.order.pk),
+                    "post": "yes",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Order.objects.filter(pk=self.order.pk).exists())
+        self.assertFalse(PaymentProof.objects.filter(pk=self.proof.pk).exists())
+        self.assertFalse(self.proof.image.storage.exists(proof_path))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.reserved_stock, 0)
+
     def test_owner_can_open_private_proof_and_reject_with_reason(self):
         proof_response = self.client.get(
             f"/admin/store/order/private-proof/{self.proof.pk}/"

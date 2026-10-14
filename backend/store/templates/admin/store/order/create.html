@@ -1,0 +1,42 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <fieldset class="module aligned">
+      {{ form.as_p }}
+    </fieldset>
+
+    <h2>Artículos del pedido</h2>
+    {{ item_formset.management_form }}
+    {{ item_formset.non_form_errors }}
+    <div id="order-items">
+      {% for item_form in item_formset %}
+        <fieldset class="module aligned order-item">
+        {{ item_form.as_p }}
+        </fieldset>
+      {% endfor %}
+    </div>
+    <button type="button" id="add-order-item">Agregar otro artículo</button>
+
+    <div class="submit-row">
+      <input type="submit" value="Crear pedido" class="default">
+      <a href="../" class="button cancel-link">Cancelar</a>
+    </div>
+  </form>
+  <script>
+    document.getElementById("add-order-item").addEventListener("click", function () {
+      const totalForms = document.getElementById("id_items-TOTAL_FORMS");
+      const nextIndex = Number(totalForms.value);
+      const template = document.querySelector(".order-item");
+      const clone = template.cloneNode(true);
+      clone.innerHTML = clone.innerHTML.replace(/items-\d+-/g, `items-${nextIndex}-`);
+      clone.querySelectorAll("input").forEach((input) => { input.value = ""; });
+      clone.querySelectorAll("select").forEach((select) => { select.selectedIndex = 0; });
+      document.getElementById("order-items").appendChild(clone);
+      totalForms.value = String(nextIndex + 1);
+    });
+  </script>
+{% endblock %}
