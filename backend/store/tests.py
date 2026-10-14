@@ -1,6 +1,8 @@
+import json
+import smtplib
 from datetime import timedelta
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import tempfile
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -24,6 +26,7 @@ from .models import (
     User,
 )
 from .services import cancel_order, confirm_order, create_order, expire_stale_reservations
+from .email_backend import BrevoEmailBackend
 
 
 def valid_png():
@@ -427,6 +430,47 @@ class RegistrationApiTests(IsolatedMediaTestCase):
         self.assertEqual(len(mail.outbox), 2)
 
 
+class BrevoEmailBackendTests(TestCase):
+    @override_settings(BREVO_API_KEY="test-api-key")
+    @patch("backend.store.email_backend.urlopen")
+    def test_backend_posts_transactional_email_to_brevo_api(self, urlopen_mock):
+        response = MagicMock()
+        response.status = 201
+        urlopen_mock.return_value.__enter__.return_value = response
+        message = mail.EmailMultiAlternatives(
+            subject="Verifica tu correo",
+            body="Abre el enlace",
+            from_email="Tienda Gamer <pedro@example.com>",
+            to=["cliente@example.com"],
+        )
+
+        sent = BrevoEmailBackend().send_messages([message])
+
+        self.assertEqual(sent, 1)
+        request = urlopen_mock.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(request.full_url, BrevoEmailBackend.api_url)
+        self.assertEqual(request.get_header("Api-key"), "test-api-key")
+        self.assertEqual(payload["sender"], {"email": "pedro@example.com", "name": "Tienda Gamer"})
+        self.assertEqual(payload["to"], [{"email": "cliente@example.com"}])
+        self.assertEqual(payload["subject"], "Verifica tu correo")
+        self.assertEqual(payload["textContent"], "Abre el enlace")
+
+    @override_settings(BREVO_API_KEY="")
+    def test_backend_requires_brevo_api_key(self):
+        message = mail.EmailMessage(subject="test", body="test", to=["test@example.com"])
+        with self.assertRaisesRegex(smtplib.SMTPException, "BREVO_API_KEY"):
+            BrevoEmailBackend().send_messages([message])
+
+
+@override_settings(
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    }
+)
 class AdminPanelTests(IsolatedMediaTestCase):
     def setUp(self):
         super().setUp()

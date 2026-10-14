@@ -75,7 +75,7 @@ class RegisterView(generics.CreateAPIView):
                 fail_silently=False,
             )
         except (smtplib.SMTPException, OSError) as error:
-            logger.exception("Brevo SMTP delivery failed during account registration.")
+            logger.exception("Brevo email delivery failed during account registration.")
             user.delete()
             raise EmailDeliveryUnavailable(
                 "No se pudo enviar el correo por Brevo. Revisa la clave SMTP, "
@@ -159,7 +159,7 @@ class ResendEmailVerificationView(APIView):
                             fail_silently=False,
                         )
                     except (smtplib.SMTPException, OSError) as error:
-                        logger.exception("Brevo SMTP delivery failed during verification resend.")
+                        logger.exception("Brevo email delivery failed during verification resend.")
                         raise EmailDeliveryUnavailable(
                             "Brevo no pudo enviar el correo. Revisa la clave SMTP, "
                             "el remitente verificado y la conexión, y vuelve a intentarlo."

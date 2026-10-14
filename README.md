@@ -75,13 +75,68 @@ Si la web indica que Brevo no pudo enviar el mensaje, revisa la terminal donde c
 
 ## Configuración de despliegue
 
-Antes de publicar:
+La configuración del repositorio está preparada para este esquema gratuito: **React en Cloudflare Pages, Django en Render Free, PostgreSQL y almacenamiento privado de comprobantes en Supabase Free**. Los proveedores pueden cambiar sus límites y disponibilidad; consulta las restricciones actuales de cada plan antes de publicar. Render Free duerme servicios inactivos y pierde su disco local en reinicios, así que SQLite y `MEDIA_ROOT` local no se usan como almacenamiento de producción.
 
-- Define `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=0`, `DJANGO_ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS` y `FRONTEND_URL`.
-- Configura correo SMTP; verifica el proceso de verificación de cuentas y la entrega de mensajes.
-- El MVP viene configurado con SQLite; adapta `DATABASES` a una base de datos administrada antes de alojarlo en producción.
-- Configura almacenamiento durable para fotos de productos y almacenamiento privado para comprobantes. No expongas `MEDIA_ROOT` ni la carpeta `private/payment-proofs` como contenido estático.
-- Configura el servidor web para servir la aplicación React y devolver su `index.html` para rutas como `/login`, `/register`, `/cart` y `/orders` (fallback de SPA).
-- Sirve HTTPS y define copias de seguridad y retención/borrado de comprobantes conforme a las reglas aplicables.
+### 1. Preparar Supabase
 
-El stock reservado vencido se libera al consultar productos/pedidos y antes de aceptar nuevas compras. En producción, configura una tarea programada (por ejemplo, una vez por minuto) para ejecutar `python manage.py expire_orders` y liberar reservas puntualmente incluso cuando no haya visitantes.
+1. En Supabase crea un proyecto en una región cercana a Render (por ejemplo, US East). Guarda la contraseña de PostgreSQL en un gestor seguro.
+2. En **Connect**, copia la URI de **Session pooler**, que es compatible con Render por IPv4. En Render se configurará como `DATABASE_URL`. Sustituye el marcador de contraseña por la real; si contiene caracteres especiales, URL-codifícala. No publiques ni envíes esa URI.
+3. Crea un bucket privado llamado `payment-proofs`.
+4. En Storage, habilita la compatibilidad S3 y genera credenciales S3 de servidor. Copia el endpoint y región que presenta Supabase. Configúralos en Render como `SUPABASE_S3_ENDPOINT_URL`, `SUPABASE_S3_REGION`, `SUPABASE_S3_ACCESS_KEY_ID`, `SUPABASE_S3_SECRET_ACCESS_KEY` y `SUPABASE_STORAGE_BUCKET=payment-proofs`. Estas claves permiten acceso amplio al almacenamiento: guárdalas solo como secretos del servicio, nunca en React, GitHub o este chat.
+5. La cuota gratuita de Storage es limitada; vigila el uso porque las capturas de pago ocupan espacio.
+
+### 2. Publicar el backend Django en Render
+
+1. En Render elige **New → Blueprint** y conecta `XeNtAMH/Videojuegos_OS`, rama `main`. Render leerá [`render.yaml`](./render.yaml) y configurará el servicio web gratuito. El archivo crea la API `videojuegos-os-api.onrender.com`, aplica migraciones e instala Gunicorn/WhiteNoise.
+2. En la configuración del servicio, completa las variables marcadas como secretas:
+   - `DATABASE_URL`: URI de Supabase **Session pooler**.
+   - `BREVO_API_KEY`: crea una clave API v3 en Brevo (no es la contraseña SMTP ni la clave SMTP). El servicio usará la API HTTPS de Brevo, porque Render Free bloquea el SMTP saliente en el puerto 587.
+   - Las cinco variables `SUPABASE_S3_*`/`SUPABASE_STORAGE_BUCKET` de la sección anterior.
+3. Conserva `DJANGO_SECRET_KEY` generada por Render y `DJANGO_DEBUG=0`. Cuando Cloudflare dé la URL final de Pages, establece `FRONTEND_URL` y `CORS_ALLOWED_ORIGINS` con ese origen exacto, por ejemplo `https://nombre.pages.dev` (sin ruta ni barra final).
+4. Espera que el despliegue termine. Revisa **Logs** si falla. La dirección de comprobación de salud será `https://videojuegos-os-api.onrender.com/api/store-settings/`.
+5. En **Shell** del servicio, ejecuta `python manage.py createsuperuser` para crear tu cuenta de administración. Luego inicia sesión en `/admin/` y asigna el rol **Dueño** a la cuenta del negocio. No uses la cuenta superusuario para operaciones cotidianas.
+
+La verificación del correo del sitio no requiere SMTP: Render llama a `https://api.brevo.com` usando `BREVO_API_KEY`. En Brevo debe seguir verificado `pedroglzzz08@gmail.com` como remitente. Registra una cuenta de prueba y mira el mensaje en **Logs** del servicio si falla; no compartas la clave. Una primera petición tras inactividad puede tardar cerca de un minuto mientras Render despierta.
+
+### 3. Publicar React en Cloudflare Pages
+
+1. En Cloudflare abre **Workers & Pages → Create → Pages → Connect to Git** y conecta el mismo repositorio y rama `main`.
+2. Configura el directorio raíz como `frontend`, el comando de compilación `npm ci && npm run build` y el directorio de salida `dist`.
+3. En variables de entorno de **Production** añade `VITE_API_URL=https://videojuegos-os-api.onrender.com/api`. Si luego cambia el nombre del servicio Render, actualiza esta URL y vuelve a compilar.
+4. Cloudflare publicará una URL `https://<nombre>.pages.dev`. Pon ese origen en `FRONTEND_URL` y `CORS_ALLOWED_ORIGINS` del backend Render y redepliega/reinicia el servicio.
+5. El archivo `frontend/public/_redirects` habilita rutas SPA como `/login`, `/orders` y `/owner`. Comprueba la página desde una conexión de Cuba antes de anunciarla a clientes.
+
+### 4. Probar antes de anunciar la tienda
+
+- Abre `https://videojuegos-os-api.onrender.com/api/store-settings/` y confirma respuesta JSON.
+- Abre el dominio Pages y comprueba catálogo, registro, login, carrito y acceso del dueño.
+- Registra una cuenta con un correo controlado por ti; verifica que llega el correo de Brevo y revisa spam. Si no llega, revisa el estado y los Logs de Brevo y los Logs de Render.
+- Crea un producto de prueba y un pedido con comprobante; confirma que el comprobante puede abrirse solo tras autenticarte como cliente o dueño.
+- Elimina los datos de prueba desde el panel si corresponde. Antes de cargar productos/clientes reales, completa y prueba el respaldo descrito abajo.
+
+La base SQLite local (`db.sqlite3`) y el directorio local `media/` están excluidos de Git. El despliegue empieza con el esquema vacío de Supabase: los productos, usuarios, pedidos y comprobantes locales **no se copian solos**. Puedes volver a crear catálogo y cuentas en producción; si necesitas conservar registros locales, planifica una migración de datos y archivos antes de abrir la tienda. No cargues un fixture con datos de clientes en GitHub.
+
+### Pausa y respaldos de Supabase Free
+
+Supabase Free puede **pausar el proyecto por inactividad** (consulta el límite vigente en su [página de precios](https://supabase.com/pricing)). Pausado no significa que se borren inmediatamente las filas, pero la tienda no podrá consultar usuarios, productos ni pedidos hasta que reanudes el proyecto desde su panel. Entra al dashboard, abre el proyecto pausado y elige **Resume/Restore** si aparece; espera a que esté activo y luego vuelve a probar la URL de la API. No cuentes con que una visita a la tienda reactive por sí sola una base pausada.
+
+Un respaldo es un archivo independiente de la base activa para recuperar los registros ante borrado accidental, fallo o pérdida del proyecto. **No impide la pausa y no equivale a garantía de permanencia eterna.** En Free no presupongas que tendrás copias automáticas descargables con retención; conserva una copia propia. Los respaldos de base tampoco incluyen los archivos del bucket: para los comprobantes, guarda además copias de los objetos del bucket o mantén una segunda copia segura de los comprobantes que debas retener.
+
+Frecuencia recomendada sin costo: ejecuta un respaldo **cada semana**, y también inmediatamente antes de cambios de esquema/importaciones o antes de cerrar una cuenta/proyecto. El script [`scripts/backup-supabase.ps1`](./scripts/backup-supabase.ps1) usa `pg_dump` y guarda un archivo personalizado fuera del repositorio en `Documentos\VideoG_TO-backups`:
+
+1. Instala PostgreSQL Command Line Tools en tu computadora para disponer de `pg_dump`.
+2. En Supabase, abre **Connect** y copia host, puerto, usuario y base de datos de Session pooler (o usa Direct connection si tu red admite IPv6).
+3. Desde PowerShell en la carpeta del proyecto ejecuta, sustituyendo esos cuatro datos por los de tu panel:
+
+   ```powershell
+   .\scripts\backup-supabase.ps1 -DbHost "HOST_DEL_POOLER" -Port 5432 -DbUser "USUARIO_DEL_POOLER" -Database "postgres"
+   ```
+
+4. Cuando se solicite, escribe la contraseña de la base; no se muestra en pantalla. Comprueba que aparece `Respaldo creado` y que el archivo `.dump` existe. Copia ese archivo a otra ubicación bajo tu control, preferiblemente cifrada y separada de la computadora.
+5. Conserva varias copias recientes y prueba periódicamente restaurar una en un proyecto/base de prueba. Un archivo no probado puede no servir al necesitarlo. El archivo contiene datos personales: protege la cuenta/disco de Windows y guarda copias adicionales únicamente en un medio cifrado; no compartas ni subas el `.dump` sin cifrar.
+
+La frecuencia semanal requiere que ejecutes ese comando semanalmente o pongas un recordatorio; la herramienta no envía los respaldos fuera de tu equipo automáticamente. El script no contiene ni guarda contraseña y la carpeta destino está fuera del proyecto.
+
+Las reservas vencidas se liberan cuando se consultan productos/pedidos o antes de nuevas compras. En producción conviene configurar una tarea programada para `python manage.py expire_orders`; en Render Free no hay un trabajador gratuito siempre activo, así que las reservas pueden liberarse al siguiente acceso si no hubo visitas durante el vencimiento.
+
+Referencias: [Planes Supabase](https://supabase.com/pricing), [conexiones PostgreSQL Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres), [S3 de Supabase Storage](https://supabase.com/docs/guides/storage/s3/authentication), [límites gratuitos Render](https://render.com/docs/free), [despliegue Django en Render](https://render.com/docs/deploy-django) y [configuración Cloudflare Pages](https://developers.cloudflare.com/pages/configuration/build-configuration/).
