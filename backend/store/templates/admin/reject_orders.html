@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+  <h1>Rechazar comprobantes</h1>
+  <p>El cliente podrá enviar una nueva captura mientras la reserva siga vigente.</p>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="{{ action_name }}">
+    <input type="hidden" name="apply" value="1">
+    {% for order in orders %}
+      <input type="hidden" name="{{ action_checkbox_name }}" value="{{ order.pk }}">
+      <p>Pedido #{{ order.pk }} — {{ order.user.email }}</p>
+    {% endfor %}
+    <label for="rejection_reason">Motivo del rechazo</label><br>
+    <textarea id="rejection_reason" name="rejection_reason" rows="4" cols="70" required></textarea>
+    <br><br>
+    <button type="submit" class="button">Rechazar comprobante(s)</button>
+    <a href="../">Cancelar</a>
+  </form>
+{% endblock %}
