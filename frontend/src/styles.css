@@ -26,6 +26,8 @@ a { color: inherit; text-decoration: none; }
 .brand-mark { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; background: var(--lime); color: #12150e; font: 700 19px "Space Grotesk", sans-serif; transform: rotate(-7deg); }
 .topbar nav { display: flex; align-items: center; gap: 31px; }
 .topbar nav button { padding: 8px 0; border: 0; background: transparent; color: #b4b5be; font-size: 13px; }
+.topbar nav .nav-cart-button { display: inline-flex; align-items: center; gap: 5px; }
+.cart-icon { display: block; width: 25px; height: 25px; }
 .topbar nav button:hover, .topbar nav .nav-active { color: #fff; }
 .topbar nav .account-button { padding: 10px 18px; border: 1px solid #41444e; border-radius: 7px; color: #f5f5f5; }
 .count { display: inline-grid; place-items: center; min-width: 19px; height: 19px; margin-left: 3px; border-radius: 50%; background: var(--lime); color: #151810; font-size: 11px; font-weight: 700; }
@@ -111,6 +113,11 @@ a { color: inherit; text-decoration: none; }
 .field-label span { color: #9295a1; font-weight: 400; }
 .checkout-card input,.checkout-card select,.checkout-card textarea,.account-form input:not([type=radio]),.proof-actions input { width: 100%; min-height: 39px; padding: 10px; border: 1px solid #3b3e49; border-radius: 4px; outline: 0; background: #13151c; color: white; font-size: 12px; }
 .checkout-card input[type=file] { min-height: auto; padding: 8px; }.checkout-card textarea { resize: vertical; }
+.proof-preview { display: grid; gap: 9px; margin-top: 12px; padding: 10px; border: 1px solid #3b3e49; border-radius: 5px; background: #13151c; }
+.proof-preview img { display: block; width: 100%; max-height: 360px; border-radius: 3px; object-fit: contain; background: #0b0c10; }
+.proof-preview-details { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #b9bac4; font-size: 11px; }
+.proof-preview-details span { min-width: 0; overflow-wrap: anywhere; }
+.proof-preview-details .text-button { flex: 0 0 auto; }
 .checkout-card input:focus,.checkout-card select:focus,.checkout-card textarea:focus,.account-form input:focus { border-color: var(--violet); }
 .payment-instructions { margin: 12px 0; padding: 11px; border-left: 2px solid var(--violet); background: #22212e; color: #b9b6c8; font-size: 11px; line-height: 1.5; }
 .payment-instructions p { margin: 0; }.full-width { width: 100%; }

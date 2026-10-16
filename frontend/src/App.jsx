@@ -46,12 +46,19 @@ function App() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const [proofFiles, setProofFiles] = useState({});
+  const [proofPreview, setProofPreview] = useState("");
   const [selectedPayment, setSelectedPayment] = useState("cash");
   const [showRegisterFields, setShowRegisterFields] = useState(
     () => window.location.pathname === "/register",
   );
   const emailInput = useRef(null);
+  const proofInput = useRef(null);
   const confirmation = useConfirmationDialog();
+
+  useEffect(() => {
+    if (!proofPreview) return undefined;
+    return () => URL.revokeObjectURL(proofPreview);
+  }, [proofPreview]);
 
   function setView(destination, productId = null) {
     let nextView = destination;
@@ -405,6 +412,8 @@ function App() {
         body: orderBody,
       });
       setCart(emptyCart);
+      setProofPreview("");
+      if (proofInput.current) proofInput.current.value = "";
       await loadOrders();
       setNotice(
         paymentMethod === "cash"
@@ -510,8 +519,19 @@ function App() {
           <button className={view === "shop" ? "nav-active" : ""} onClick={() => setView("shop")}>
             Tienda
           </button>
-          <button className={view === "cart" ? "nav-active" : ""} onClick={openCart}>
-            Carrito <span className="count">{cartCount}</span>
+          <button
+            className={`nav-cart-button${view === "cart" ? " nav-active" : ""}`}
+            onClick={openCart}
+            aria-label={`Carrito, ${cartCount} artículos`}
+            title="Carrito"
+          >
+            <img
+              className="cart-icon"
+              src="/shopping-cart-01-svgrepo-com.svg"
+              alt=""
+              aria-hidden="true"
+            />
+            <span className="count">{cartCount}</span>
           </button>
           {token && (
             <button className={view === "orders" ? "nav-active" : ""} onClick={() => setView("orders")}>
@@ -732,7 +752,35 @@ function App() {
                 <label className="field-label">Nota para el dueño <span>(opcional)</span></label>
                 <textarea name="customer_note" rows="2" placeholder="Detalles para coordinar la recogida" />
                 <label className="field-label">{selectedPayment === "cash" ? "Captura del pago" : "Captura de la transferencia (obligatoria)"} <span>(JPG, PNG o WEBP; hasta 5 MB)</span></label>
-                <input name="proof" type="file" accept="image/jpeg,image/png,image/webp" required={selectedPayment !== "cash"} />
+                <input
+                  ref={proofInput}
+                  name="proof"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  required={selectedPayment !== "cash"}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    setProofPreview(file ? URL.createObjectURL(file) : "");
+                  }}
+                />
+                {proofPreview && (
+                  <div className="proof-preview">
+                    <img src={proofPreview} alt="Vista previa del comprobante seleccionado" />
+                    <div className="proof-preview-details">
+                      <span>{proofInput.current?.files?.[0]?.name}</span>
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => {
+                          if (proofInput.current) proofInput.current.value = "";
+                          setProofPreview("");
+                        }}
+                      >
+                        Quitar imagen
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <button className="primary-button full-width" disabled={busy}>{busy ? "Procesando..." : token ? "Realizar pedido" : "Entrar para continuar"}</button>
                 {!token && <p className="small-note">Necesitas una cuenta verificada para realizar el pedido.</p>}
               </form>
