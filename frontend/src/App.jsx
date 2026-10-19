@@ -6,6 +6,8 @@ import ConfirmationDialog, { useConfirmationDialog } from "./ConfirmationDialog.
 const CUP = new Intl.NumberFormat("es-CU", { maximumFractionDigits: 0 });
 const money = (value) => `${CUP.format(value)} CUP`;
 const emptyCart = {};
+const normalizeSearchText = (value) =>
+  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
 
 function viewForPath(pathname) {
   if (pathname === "/" || pathname === "/home") return "shop";
@@ -40,6 +42,7 @@ function App() {
     productIdForPath(window.location.pathname),
   );
   const [category, setCategory] = useState("Todos");
+  const [searchTerm, setSearchTerm] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [recentlyAddedId, setRecentlyAddedId] = useState(null);
@@ -110,10 +113,14 @@ function App() {
     () => ["Todos", ...new Set(products.map((product) => product.category))],
     [products],
   );
-  const visibleProducts =
-    category === "Todos"
-      ? products
-      : products.filter((product) => product.category === category);
+  const normalizedSearchTerm = normalizeSearchText(searchTerm.trim());
+  const visibleProducts = products.filter((product) => {
+    const matchesCategory = category === "Todos" || product.category === category;
+    const matchesSearch =
+      !normalizedSearchTerm ||
+      normalizeSearchText(product.name).includes(normalizedSearchTerm);
+    return matchesCategory && matchesSearch;
+  });
   const cartProducts = Object.entries(cart)
     .map(([id, quantity]) => {
       const product = products.find((item) => item.id === Number(id));
@@ -583,10 +590,33 @@ function App() {
               <div><p className="eyebrow">SELECCIÓN DE LA TIENDA</p><h2>Encuentra tu equipo</h2></div>
               <span className="product-count">{visibleProducts.length} artículos</span>
             </div>
-            <div className="category-list">
-              {categories.map((item) => (
-                <button key={item} className={category === item ? "category active" : "category"} onClick={() => setCategory(item)}>{item}</button>
-              ))}
+            <div className="catalog-filters">
+              <div className="category-list">
+                {categories.map((item) => (
+                  <button key={item} className={category === item ? "category active" : "category"} onClick={() => setCategory(item)}>{item}</button>
+                ))}
+              </div>
+              <label className="product-search">
+                <span className="visually-hidden">Buscar artículos por nombre</span>
+                <input
+                  type="search"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Buscar artículo..."
+                  aria-label="Buscar artículos por nombre"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    className="clear-search"
+                    onClick={() => setSearchTerm("")}
+                    aria-label="Limpiar búsqueda"
+                    title="Limpiar búsqueda"
+                  >
+                    ×
+                  </button>
+                )}
+              </label>
             </div>
             {visibleProducts.length ? (
               <div className="product-grid">
@@ -620,7 +650,7 @@ function App() {
                   </article>
                 ))}
               </div>
-            ) : <div className="empty-state"><span>◌</span><h3>Próximamente</h3><p>El catálogo se está preparando. Vuelve pronto.</p></div>}
+            ) : <div className="empty-state"><span>◌</span><h3>{products.length ? "No encontramos artículos" : "Próximamente"}</h3><p>{products.length ? "Prueba con otro nombre o cambia la categoría seleccionada." : "El catálogo se está preparando. Vuelve pronto."}</p></div>}
           </section>
 
           <section className="how-it-works">
